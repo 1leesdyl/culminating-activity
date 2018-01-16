@@ -24,9 +24,14 @@ Servo servo_unlock;
 int lservo;
 int uservo;
 
-void stolower(const char* string[])
+void ser_flush()
 {
-  for (int i = 0; i < strlen(*string); ++i)
+  while(Serial.available()) Serial.read();
+}
+
+void stolower(char string[])
+{
+  for (int i = 0; i < strlen(string); ++i)
   {
     string[i] = tolower(string[i]);
   }
@@ -35,7 +40,7 @@ void stolower(const char* string[])
 bool ser_yn(const char text[])
 {
   char answer;
-  while (Serial.available()) { Serial.readStringUntil('\n').toCharArray(answer, 1); }
+  Serial.readStringUntil('\n').toCharArray(answer, 1);
   stolower(answer);
   return (answer == 'y');
 }
@@ -50,6 +55,8 @@ void setup() {
   
   while (!Serial) { ; /* wait for serial port to connect */ }
 
+  Serial.println(Serial.availalble(), DEC);
+  
   //Setup Bluetooth serial connection to android with 9600 baud rate
   bluetooth.begin(9600);
 
@@ -77,19 +84,20 @@ void setup() {
   else 
   {
     char password[PASS_LEN];
+
+    for (int i = 0; i < PASS_LEN; ++i) { password[i] = ZERO; }
     
     Serial.println("First time setup!");
-    for (int addr = 0; addr <= (SZ-1); ++addr) 
-    {
-      EEPROM.write(addr, ZERO);
-    }
+    for (int addr = 0; addr < SZ; ++addr) { EEPROM.write(addr, ZERO); }
     
     //EEPROM.write(SZ-1, KEY);
 
-    while (true) {
+    while (Serial.available()) {
+      delay(1);
+      ser_flush();
       Serial.println("Please enter a password:");
   
-      while (Serial.available()) { Serial.readStringUntil('\n').toCharArray(password, PASS_LEN); }
+      Serial.readStringUntil('\n').toCharArray(password, PASS_LEN);
   
       Serial.println();
       
@@ -125,7 +133,7 @@ void setup() {
 }
 
 void loop() {
-  
+  Serial.println("Now in loop...");
   
   //Read from bluetooth and write pos (number) to servo
   if (bluetooth.available() > 0) // receive number from bluetooth (zero is no data / not available)

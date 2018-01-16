@@ -9,13 +9,9 @@ void setup() {
   // Setup usb serial connection to computer with 9600 baud rate
   Serial.begin(9600);
   
-  while (!Serial) {
-    ; // wait for serial port to connect.
-  }
+  while (!Serial) { ; }
   
-  for (int addr = 0; addr <= (SZ-1); ++addr) {
-    EEPROM.write(addr, ZERO);
-  }
+  for (int addr = 0; addr < SZ; ++addr) { EEPROM.write(addr, ZERO); }
 
   //EEPROM.write(1023, KEY);
   
