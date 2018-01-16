@@ -24,8 +24,21 @@ Servo servo_unlock;
 int lservo;
 int uservo;
 
-// char array for reading values from EEPROM
-char data[SZ];
+void stolower(const char* string[])
+{
+  for (int i = 0; i < strlen(*string); ++i)
+  {
+    string[i] = tolower(string[i]);
+  }
+}
+
+bool ser_yn(const char text[])
+{
+  char answer;
+  while (Serial.available()) { Serial.readStringUntil('\n').toCharArray(answer, 1); }
+  stolower(answer);
+  return (answer == 'y');
+}
 
 void setup() {
   // attach servos
@@ -35,10 +48,7 @@ void setup() {
   // Setup usb serial connection to computer with 9600 baud rate
   Serial.begin(9600);
   
-  while (!Serial) 
-  {
-    ; // wait for serial port to connect.
-  }
+  while (!Serial) { ; /* wait for serial port to connect */ }
 
   //Setup Bluetooth serial connection to android with 9600 baud rate
   bluetooth.begin(9600);
@@ -54,12 +64,11 @@ void setup() {
   Serial.print(EEPROM.length(), DEC);
   Serial.print(" bytes.");
   Serial.println();
-
-  // read all data from EEPROM
-  for (int address = 0; address <= (SZ-1); ++address) { data[address] = EEPROM.read(address); }
+  
+  byte key = EEPROM.read(SZ-1);
 
   // check if first time loading
-  if (data[SZ-1] == KEY) 
+  if (key == KEY) 
   {
     Serial.println("Device has already been setup!");
     return 0;
@@ -74,20 +83,44 @@ void setup() {
     {
       EEPROM.write(addr, ZERO);
     }
-    EEPROM.write(SZ-1, KEY);
-
-    Serial.println("Please enter a password:");
-
-    while (Serial.available())
-    {
-    Serial.readString().toCharArray(password, PASS_LEN);
-    }
     
-    for (int i = 0; i < sizeof(password); ++i)
-    {
-      Serial.print(password[i]);
+    //EEPROM.write(SZ-1, KEY);
+
+    while (true) {
+      Serial.println("Please enter a password:");
+  
+      while (Serial.available()) { Serial.readStringUntil('\n').toCharArray(password, PASS_LEN); }
+  
+      Serial.println();
+      
+      for (int i = 0; i < sizeof(password); ++i) { Serial.print(password[i]); }
+  
+      if (ser_yn("Is this the password you want? (Y/N): ")) 
+      {
+        Serial.println("Saving password...");
+        for (int addr = 0; addr < PASS_LEN; ++addr)
+        {
+          EEPROM.write(addr, password[addr]);
+          Serial.print("Writing char: ");
+          Serial.print(password[addr]);
+        }
+        Serial.println();
+
+        if (ser_yn("Would you like to list the bytes of the EEPROM? (Y/N): "))
+        {
+          for (int address = 0; address <= (SZ-1); ++address)
+          {    
+            Serial.print(address);
+            Serial.print("\t");
+            Serial.print(EEPROM.read(address), DEC);
+            Serial.println();
+          }
+        }
+        else { ; }
+
+      }
+      else { ; }
     }
-    Serial.println();
   }
 }
 
