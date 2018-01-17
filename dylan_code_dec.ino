@@ -1,5 +1,4 @@
 #include <Servo.h> // library for servos
-#include <SoftwareSerial.h> // TX RX software library for bluetooth
 #include <EEPROM.h> // library for reading and writing to the EEPROM
 #include <String.h> // library for manipulating strings
 
@@ -7,68 +6,121 @@
 #define SERVO1_PIN 9
 #define SERVO2_PIN 10
 #define SERVO3_PIN 10
-#define BLUE_RX 6
-#define BLUE_TX 5
 #define ZERO 0
-#define SZ 1024
 #define KEY 123
-#define PASS_LEN 20
+#define PASSLEN 20
 
-// init bluetooth using pin constants for tx and rx
-SoftwareSerial bluetooth(BLUE_TX, BLUE_RX);
+const int SZ = EEPROM.length();
 
-// init servos
-Servo servo_lock;
-Servo servo_unlock;
+// declare servos
+Servo lock_servo;
+Servo unlock_servo;
 
-int lservo;
-int uservo;
+// declare pw array
+char pw[PASSLEN + 1];
 
-void ser_flush()
-{
-  while(Serial.available()) Serial.read();
-}
+// declare working options
+String woption[3] = {"Open box", "Close box", "Change password"};
 
-void stolower(char string[])
-{
-  for (int i = 0; i < strlen(string); ++i)
-  {
-    string[i] = tolower(string[i]);
-  }
-}
+bool debug = false;
+
+void ser_flush() { while(Serial.available()) Serial.read(); }
+
+void stolower(char string[]) { for (int i = 0; i < strlen(string); ++i) string[i] = tolower(string[i]); }
+
+void readto(char buf[], unsigned int range) { for (int addr = 0; addr < range; ++addr) buf[addr] = EEPROM.read(addr); }
 
 bool ser_yn(const char text[])
 {
-  char answer;
-  Serial.readStringUntil('\n').toCharArray(answer, 1);
-  stolower(answer);
-  return (answer == 'y');
+  char answer[2];
+  do {
+    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer)); }
+    stolower(answer);
+  } while (answer[0] != 'y' || answer[0] != 'n');
+  
+  return (answer[0] == 'y');
+}
+
+int ser_menu(const String options[])
+{
+  Serial.println("Please choose an option: ");
+  for (int i = 0; i < sizeof(options); ++i)
+  {
+    Serial.print(i + 1, DEC);
+    Serial.print(". " + options[i]);
+  }
+  byte asize = 1;
+  if (sizeof(options) > 9) { asize = 2; }
+  char answer[asize + 1] = {0};
+  
+  do 
+  {
+    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer)); }
+  } while(answer == 0 || answer > sizeof(options));
+}
+
+void write_pw(const char pw[])
+{
+  for (int addr = 0; addr < PASSLEN; ++addr)
+  {
+    EEPROM.write(addr, pw[addr]);
+    Serial.print("Writing char: ");
+    Serial.print(pw[addr]);
+    Serial.println();
+  }
+}
+
+void set_pw()
+{
+  char password[PASSLEN + 1];
+  bool answer = false;
+  do {
+    delay(1);
+    ser_flush();
+    Serial.println("Please enter a password up to 20 char:"); // todo use pass len
+    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(password, sizeof(password)); }
+  
+    answer = ser_yn("Is this the password you want? (Y/N): ");
+    if (answer) 
+    {
+      Serial.println("Saving password...");
+      write_pw(password);
+      Serial.println();
+      if (ser_yn("Would you like to list the bytes of the EEPROM? (Y/N): "))
+      {
+        for (int addr = 0; addr < SZ; ++addr)
+        {    
+          Serial.print(addr);
+          Serial.print("\t");
+          Serial.print(EEPROM.read(addr), DEC);
+          Serial.println();
+        }
+      }
+    }
+  } while (answer = false);
 }
 
 void setup() {
   // attach servos
-  servo_lock.attach(SERVO1_PIN);
-  servo_unlock.attach(SERVO2_PIN);
+  lock_servo.attach(SERVO1_PIN);
+  unlock_servo.attach(SERVO2_PIN);
   
   // Setup usb serial connection to computer with 9600 baud rate
   Serial.begin(9600);
   
-  while (!Serial) { ; /* wait for serial port to connect */ }
+  while (!Serial) { ; } // wait for serial port to connect
 
-  Serial.println(Serial.availalble(), DEC);
-  
-  //Setup Bluetooth serial connection to android with 9600 baud rate
-  bluetooth.begin(9600);
+  Serial.println("Please set the Serial Monitor to send Newlines and Carriage Returns (NL and CR).");
 
-  //reset servo positions to neutral positions
-  servo_lock.write(0);
+  // reset servo positions to neutral positions
+  lock_servo.write(0);
   delay(700);
-  servo_unlock.write(90);
+  unlock_servo.write(90);
   delay(700);
 
   // Get size of EEPROM for debug
   Serial.print("Size of EEPROM: ");
-  Serial.print(EEPROM.length(), DEC);
+  Serial.print(SZ, DEC);
   Serial.print(" bytes.");
   Serial.println();
   
@@ -80,70 +132,66 @@ void setup() {
     Serial.println("Device has already been setup!");
     return 0;
   }
+  
   // it is first time setting up
   else 
   {
-    char password[PASS_LEN];
-
-    for (int i = 0; i < PASS_LEN; ++i) { password[i] = ZERO; }
+    char password[PASSLEN + 1];
     
     Serial.println("First time setup!");
     for (int addr = 0; addr < SZ; ++addr) { EEPROM.write(addr, ZERO); }
     
     //EEPROM.write(SZ-1, KEY);
 
-    while (Serial.available()) {
-      delay(1);
-      ser_flush();
-      Serial.println("Please enter a password:");
+    set_pw();
+  }
   
-      Serial.readStringUntil('\n').toCharArray(password, PASS_LEN);
-  
-      Serial.println();
-      
-      for (int i = 0; i < sizeof(password); ++i) { Serial.print(password[i]); }
-  
-      if (ser_yn("Is this the password you want? (Y/N): ")) 
-      {
-        Serial.println("Saving password...");
-        for (int addr = 0; addr < PASS_LEN; ++addr)
-        {
-          EEPROM.write(addr, password[addr]);
-          Serial.print("Writing char: ");
-          Serial.print(password[addr]);
-        }
-        Serial.println();
+  readto(pw, PASSLEN);
+  //Serial.println("Now in loop...");
+}
 
-        if (ser_yn("Would you like to list the bytes of the EEPROM? (Y/N): "))
-        {
-          for (int address = 0; address <= (SZ-1); ++address)
-          {    
-            Serial.print(address);
-            Serial.print("\t");
-            Serial.print(EEPROM.read(address), DEC);
-            Serial.println();
-          }
-        }
-        else { ; }
+void loop() {
+  char input[PASSLEN + 1];
+  bool match = false;
 
+  do {
+    Serial.println("Please enter a password: ");
+    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(input, sizeof(input)); }
+    match = true; // assume match
+    for (int i = 0; i < PASSLEN; ++i) 
+    { 
+      if (input[i] != EEPROM.read(i)) 
+      { 
+        match = false;
+        Serial.println("Wrong password!");
+        break;
       }
-      else { ; }
+    }
+  } while (match == false);
+  
+  if (match == true)
+  {
+    Serial.println("Correct password entered!");
+    unsigned int sel = ser_menu(woption);
+    switch (sel) {
+      case 1:
+        Serial.println("Opening box...");
+        unlock_servo.write(0);
+        lock_servo.write(0);
+        break;
+      case 2:
+        Serial.println("Closing box...");
+        unlock_servo.write(0);
+        lock_servo.write(0);
+        break;
+      case 3:
+        set_pw();
+        break;
+      default:
+        Serial.println("Incorrect option!");
+        break;
     }
   }
 }
 
-void loop() {
-  Serial.println("Now in loop...");
-  
-  //Read from bluetooth and write pos (number) to servo
-  if (bluetooth.available() > 0) // receive number from bluetooth (zero is no data / not available)
-  {
-    lservo = bluetooth.read(); // save the received number to servopos
-    Serial.println(lservo); // serial print servopos current number received from bluetooth (use serial monitor)
-    servo_lock.write(lservo); // rotate the servo the angle received from the android app
-  }
-
-}
-
-
-
+ 
