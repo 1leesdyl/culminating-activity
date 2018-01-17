@@ -24,7 +24,7 @@ String woption[3] = {"Open box", "Close box", "Change password"};
 
 bool debug = false;
 
-void ser_flush() { while(Serial.available()) Serial.read(); }
+void ser_flush() { while(Serial.available() > 0) Serial.read(); }
 
 void stolower(char string[]) { for (int i = 0; i < strlen(string); ++i) string[i] = tolower(string[i]); }
 
@@ -33,9 +33,14 @@ void readto(char buf[], unsigned int range) { for (int addr = 0; addr < range; +
 bool ser_yn(const char text[])
 {
   char answer[2];
+  Serial.println(text);
   do {
-    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer)); }
-    stolower(answer);
+    delay(1);
+    if (Serial.available() > 0) 
+    { 
+      Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer));
+      stolower(answer);
+    }
   } while (answer[0] != 'y' || answer[0] != 'n');
   
   return (answer[0] == 'y');
@@ -55,7 +60,8 @@ int ser_menu(const String options[])
   
   do 
   {
-    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer)); }
+    delay(1);
+    if (Serial.available() > 0) { Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer)); }
   } while(answer == 0 || answer > sizeof(options));
 }
 
@@ -74,29 +80,36 @@ void set_pw()
 {
   char password[PASSLEN + 1];
   bool answer = false;
+
+  Serial.println("Please enter a password up to 20 char:"); // todo use pass len
+  
   do {
     delay(1);
-    ser_flush();
-    Serial.println("Please enter a password up to 20 char:"); // todo use pass len
-    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(password, sizeof(password)); }
-  
-    answer = ser_yn("Is this the password you want? (Y/N): ");
-    if (answer) 
-    {
-      Serial.println("Saving password...");
-      write_pw(password);
-      Serial.println();
-      if (ser_yn("Would you like to list the bytes of the EEPROM? (Y/N): "))
+    if (Serial.available() > 0) 
+    { 
+      Serial.readStringUntil('\n').toCharArray(password, sizeof(password));
+      Serial.println(password);
+      answer = ser_yn("Is this the password you want? (Y/N): ");
+      if (answer) 
       {
-        for (int addr = 0; addr < SZ; ++addr)
-        {    
-          Serial.print(addr);
-          Serial.print("\t");
-          Serial.print(EEPROM.read(addr), DEC);
-          Serial.println();
+        Serial.println("Saving password...");
+        write_pw(password);
+        Serial.println();
+        if (ser_yn("Would you like to list the bytes of the EEPROM? (Y/N): "))
+        {
+          for (int addr = 0; addr < SZ; ++addr)
+          {    
+            Serial.print(addr);
+            Serial.print("\t");
+            Serial.print(EEPROM.read(addr), DEC);
+            Serial.println();
+          }
         }
-      }
+        else { break; }
+      } 
+      else { continue; }
     }
+    else { continue; }
   } while (answer = false);
 }
 
@@ -154,9 +167,11 @@ void loop() {
   char input[PASSLEN + 1];
   bool match = false;
 
+  Serial.println("Please enter a password: ");
+  
   do {
-    Serial.println("Please enter a password: ");
-    if (Serial.available()) { Serial.readStringUntil('\n').toCharArray(input, sizeof(input)); }
+    delay(1);
+    if (Serial.available() > 0) { Serial.readStringUntil('\n').toCharArray(input, sizeof(input)); }
     match = true; // assume match
     for (int i = 0; i < PASSLEN; ++i) 
     { 
