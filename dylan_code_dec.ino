@@ -1,15 +1,16 @@
+// Author: Dylan Lees
+// Description: Serial Interface for Arduino and locking box (controlling Servos)
+
 #include <Servo.h> // library for servos
 #include <EEPROM.h> // library for reading and writing to the EEPROM
-#include <String.h> // library for manipulating strings
 
-// constant definitions
+// constant & macro definitions
 #define SERVO1_PIN 9
 #define SERVO2_PIN 10
 #define SERVO3_PIN 10
 #define ZERO 0
 #define KEY 123
 #define PASSLEN 20
-
 const int SZ = EEPROM.length();
 
 // declare servos
@@ -20,13 +21,18 @@ Servo unlock_servo;
 char pw[PASSLEN + 1];
 
 // declare working options
-String woption[3] = {"Open box", "Close box", "Change password"};
+String woption[] = {"Open box", "Close box", "Change password", "Exit"};
 
-bool debug = false;
-
-void ser_flush() { while(Serial.available() > 0) Serial.read(); }
+bool match = false;
+bool disp_prompt = true;
 
 void stolower(char string[]) { for (int i = 0; i < strlen(string); ++i) string[i] = tolower(string[i]); }
+
+void clr(byte lines, int wait) 
+{ 
+  if (wait >= 0) { delay(wait); }
+  for (int i = 0; i <= lines; ++i) Serial.println(); 
+}
 
 void readto(char buf[], unsigned int range) { for (int addr = 0; addr < range; ++addr) buf[addr] = EEPROM.read(addr); }
 
@@ -34,83 +40,131 @@ bool ser_yn(const char text[])
 {
   char answer[2];
   Serial.println(text);
-  do {
+  while (Serial)
+  {
+    while (Serial.available()) { delay(1); }
+    String sanswer = Serial.readStringUntil('\n');
     delay(1);
-    if (Serial.available() > 0) 
-    { 
-      Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer));
+    if (sanswer != 0) { 
+      sanswer.toCharArray(answer, sizeof(answer));
       stolower(answer);
+      Serial.println(answer);
+      switch (answer[0])  
+      {
+        case 'y':
+          return true;
+          break;
+        case 'n':
+          return false;
+          break;
+        default:
+          Serial.println(text);
+          continue;
+      }
     }
-  } while (answer[0] != 'y' || answer[0] != 'n');
-  
-  return (answer[0] == 'y');
+  }
 }
 
-int ser_menu(const String options[])
+int ser_menu(const String options[], const unsigned int len)
 {
-  Serial.println("Please choose an option: ");
-  for (int i = 0; i < sizeof(options); ++i)
-  {
-    Serial.print(i + 1, DEC);
-    Serial.print(". " + options[i]);
-  }
-  byte asize = 1;
-  if (sizeof(options) > 9) { asize = 2; }
-  char answer[asize + 1] = {0};
+  bool prompt = true;
   
-  do 
+  byte asize = 1;
+  if (len > 9) { asize = 2; }
+  char answer[asize + 1] = {0};
+
+  while (Serial)
   {
+    if (prompt)
+    {
+        Serial.println("Please choose an option: ");
+        for (int i = 0; i < len; ++i)
+        {
+          Serial.print(i + 1, DEC);
+          Serial.println(". " + options[i]);
+        }
+        prompt = false;
+    }
+    while (Serial.available()) { delay(1); }
+    String sanswer = Serial.readStringUntil('\n');
     delay(1);
-    if (Serial.available() > 0) { Serial.readStringUntil('\n').toCharArray(answer, sizeof(answer)); }
-  } while(answer == 0 || answer > sizeof(options));
+    sanswer.toCharArray(answer, sizeof(answer));
+    if (strlen(answer) <= 0) { continue; }
+    unsigned int ianswer = atoi(answer);
+    if (ianswer != 0 && ianswer <= len) 
+    { 
+      return ianswer;
+    }
+    else
+    {
+      Serial.println("Bad Option!");
+      prompt = true;
+    }
+  }
 }
 
 void write_pw(const char pw[])
 {
-  for (int addr = 0; addr < PASSLEN; ++addr)
+  for (int i = 0; i < PASSLEN; ++i)
   {
-    EEPROM.write(addr, pw[addr]);
-    Serial.print("Writing char: ");
-    Serial.print(pw[addr]);
-    Serial.println();
+    if (pw[i] > 0) 
+    {
+      EEPROM.write(i, pw[i]);
+      Serial.print("Writing char: ");
+      Serial.println(pw[i]);
+    }
+    else { EEPROM.write(i, ZERO); }
   }
 }
 
 void set_pw()
 {
   char password[PASSLEN + 1];
-  bool answer = false;
 
-  Serial.println("Please enter a password up to 20 char:"); // todo use pass len
+  for (int i = 0; i < sizeof(password); ++i) { password[i] = 0; }
   
-  do {
+  bool answer = true;
+
+  Serial.println("Please enter a password up to 20 characters long: ");
+
+  while (Serial)
+  {
+    while (Serial.available() > 0) { delay(1); }
+    String spassword = Serial.readStringUntil('\n');
+    spassword.toCharArray(password, sizeof(password));
     delay(1);
-    if (Serial.available() > 0) 
+    if (strlen(password) > 0) 
     { 
-      Serial.readStringUntil('\n').toCharArray(password, sizeof(password));
       Serial.println(password);
       answer = ser_yn("Is this the password you want? (Y/N): ");
       if (answer) 
       {
         Serial.println("Saving password...");
+        for (int addr = 0; addr < PASSLEN; ++addr) { EEPROM.write(addr, ZERO); }
         write_pw(password);
         Serial.println();
+        clr(100, 2000);
         if (ser_yn("Would you like to list the bytes of the EEPROM? (Y/N): "))
         {
-          for (int addr = 0; addr < SZ; ++addr)
+          for (int addr = 0; addr < PASSLEN; ++addr)
           {    
             Serial.print(addr);
             Serial.print("\t");
             Serial.print(EEPROM.read(addr), DEC);
             Serial.println();
           }
+
+          break;
         }
         else { break; }
-      } 
-      else { continue; }
+      }
+      else 
+      { 
+        Serial.println("Please enter a password up to 20 characters long: ");
+        continue; 
+      }
     }
-    else { continue; }
-  } while (answer = false);
+  }
 }
 
 void setup() {
@@ -121,9 +175,9 @@ void setup() {
   // Setup usb serial connection to computer with 9600 baud rate
   Serial.begin(9600);
   
-  while (!Serial) { ; } // wait for serial port to connect
+  while (!Serial) {} // wait for serial port to connect
 
-  Serial.println("Please set the Serial Monitor to send Newlines and Carriage Returns (NL and CR).");
+  Serial.println("Please set the Serial Monitor to send Newlines (\\n).");
 
   // reset servo positions to neutral positions
   lock_servo.write(0);
@@ -152,11 +206,12 @@ void setup() {
     char password[PASSLEN + 1];
     
     Serial.println("First time setup!");
-    for (int addr = 0; addr < SZ; ++addr) { EEPROM.write(addr, ZERO); }
-    
-    //EEPROM.write(SZ-1, KEY);
+
+    // reset password bytes
+    for (int addr = 0; addr < PASSLEN; ++addr) { EEPROM.write(addr, ZERO); }
 
     set_pw();
+    EEPROM.write(SZ-1, KEY);
   }
   
   readto(pw, PASSLEN);
@@ -165,48 +220,74 @@ void setup() {
 
 void loop() {
   char input[PASSLEN + 1];
-  bool match = false;
+  for (int i = 0; i < sizeof(input); ++i) { input[i] = 0; }
 
-  Serial.println("Please enter a password: ");
-  
-  do {
-    delay(1);
-    if (Serial.available() > 0) { Serial.readStringUntil('\n').toCharArray(input, sizeof(input)); }
-    match = true; // assume match
-    for (int i = 0; i < PASSLEN; ++i) 
-    { 
-      if (input[i] != EEPROM.read(i)) 
-      { 
-        match = false;
-        Serial.println("Wrong password!");
-        break;
-      }
-    }
-  } while (match == false);
-  
-  if (match == true)
+  if (disp_prompt) 
   {
-    Serial.println("Correct password entered!");
-    unsigned int sel = ser_menu(woption);
+    Serial.println("Please enter the password: ");
+    disp_prompt = false;
+  }
+
+  if (match == true)
+  {    
+    unsigned int sel = ser_menu(woption, (sizeof(woption) / sizeof(woption[0])));
     switch (sel) {
       case 1:
         Serial.println("Opening box...");
         unlock_servo.write(0);
         lock_servo.write(0);
+        clr(100, 500);
         break;
       case 2:
         Serial.println("Closing box...");
         unlock_servo.write(0);
         lock_servo.write(0);
+        clr(100, 500);
         break;
       case 3:
         set_pw();
+        match = false;
+        disp_prompt = true;
         break;
+      case 4:
+        Serial.println("Goodbye!");
+        delay(3000);
+        exit(0); 
       default:
         Serial.println("Incorrect option!");
         break;
     }
   }
-}
+  else
+  {
+    for (int i = 0; i < sizeof(input); ++i) { input[i] = 0; }
+    while (Serial.available()) { delay(1); }
+    String sinput = Serial.readStringUntil('\n');
+    delay(1);
+    if (sinput != 0) 
+    { 
+      sinput.toCharArray(input, sizeof(input));
 
- 
+      char password[PASSLEN + 1];
+      readto(password, PASSLEN);
+
+      match = true;
+      
+      for (int i = 0; i < PASSLEN; ++i)
+      { 
+        if (input[i] != password[i]) 
+        {
+          match = false;
+          disp_prompt = true;
+          Serial.println("Bad Password!");
+          break;
+        }
+      }
+
+      if (match == true) 
+      {
+        Serial.println("Correct password entered!");
+      }
+    }
+  }
+}
